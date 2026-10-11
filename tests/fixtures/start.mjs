@@ -17,7 +17,7 @@ const server = createServer(async (req, res) => {
   if (path === "/inspect") return send(200, file);
   if (req.headers.authorization !== "Bearer test-only-github-token")
     return send(401, {});
-  if (path === "/repos/MHadiX/wrapnwhim/")
+  if (path === "/repos/MHadiX/wrapnwhim")
     return send(200, { default_branch: "main" });
   if (path.endsWith("/git/ref/heads/main"))
     return send(200, { object: { sha: "a".repeat(40) } });

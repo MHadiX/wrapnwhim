@@ -162,7 +162,7 @@ async function github(path: string, init?: RequestInit) {
       ? `http://127.0.0.1:${port}`
       : "https://api.github.com";
   try {
-    return await fetch(`${base}/repos/${repository}/${path}`, {
+    return await fetch(`${base}/repos/${repository}${path ? `/${path}` : ""}`, {
       ...init,
       headers: {
         Authorization: `Bearer ${token}`,

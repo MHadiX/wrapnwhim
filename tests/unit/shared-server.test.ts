@@ -54,7 +54,7 @@ beforeEach(async () => {
         branch = true;
         return reply(201, {});
       }
-      if (path === "/repos/MHadiX/wrapnwhim/")
+      if (path === "/repos/MHadiX/wrapnwhim")
         return reply(200, { default_branch: "main" });
       if (path.endsWith("/contents/.wrapnwhip/workspace.json")) {
         if (init?.method !== "PUT") return reply(file ? 200 : 404, file || {});
