@@ -48,7 +48,7 @@ npm run start
 
 ## Hosting
 
-`vercel.json` configures the static output and security headers. If Vercel is already connected to this GitHub repository, a push to `main` triggers its normal automatic deployment. No Supabase variables are used. Old Supabase variables may be removed from a previously configured deployment.
+`vercel.json` configures the static output and security headers. Its `framework: null` disables Vercel's Next.js server adapter: `npm run build` exports the site and Vercel serves `out/` as static files. The Next.js adapter would incorrectly look for `out/routes-manifest.json`. If Vercel is already connected to this GitHub repository, a push to `main` triggers its normal automatic deployment. No Supabase variables are used. Old Supabase variables may be removed from a previously configured deployment.
 
 A GitHub Pages workflow is also supplied. It builds with `/wrapnwhim` as the project base path and attempts to enable/deploy Pages. Repository administrators or organization policies can restrict Pages enablement; workflow success must be checked before claiming a live site. GitHub access does not automatically provide permission to create or connect a Vercel account.
 
