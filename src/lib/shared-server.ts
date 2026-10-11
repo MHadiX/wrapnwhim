@@ -14,10 +14,10 @@ export class ApiError extends Error {
   }
 }
 export function settings() {
-  const token = process.env.GITHUB_STORAGE_TOKEN;
+  const token = process.env.GITHUB_STORAGE_TOKEN?.trim();
   const password = process.env.WORKSPACE_PASSWORD;
   const repository =
-    process.env.GITHUB_STORAGE_REPOSITORY || "MHadiX/wrapnwhim";
+    process.env.GITHUB_STORAGE_REPOSITORY?.trim() || "MHadiX/wrapnwhim";
   if (
     !token ||
     !password ||
@@ -180,15 +180,44 @@ async function github(path: string, init?: RequestInit) {
     );
   }
 }
-function githubError(status: number): never {
-  if (status === 401 || status === 403 || status === 404)
+async function githubError(
+  result: Response,
+  operation: string,
+): Promise<never> {
+  const status = result.status;
+  let message = "";
+  try {
+    const body = await result.json();
+    if (typeof body?.message === "string") message = body.message;
+  } catch {}
+  // Use known diagnostics only; never return GitHub response bodies or credentials.
+  if (status === 401)
     throw new ApiError(
       503,
-      "GitHub storage access failed. Check the server token's repository access and Contents read/write permission.",
+      "GitHub rejected the storage token (401). Check that it has not expired or been revoked, then update GITHUB_STORAGE_TOKEN in Vercel and redeploy.",
+    );
+  if (status === 403 && /workflow/i.test(message))
+    throw new ApiError(
+      503,
+      "GitHub blocked storage setup because the repository contains workflows. Add repository Workflows read/write permission to the storage token, then retry.",
+    );
+  if (
+    status === 403 &&
+    (result.headers.get("x-ratelimit-remaining") === "0" ||
+      /rate limit/i.test(message))
+  )
+    throw new ApiError(
+      503,
+      "GitHub's request limit has been reached. Wait before trying again.",
+    );
+  if (status === 403 || status === 404)
+    throw new ApiError(
+      503,
+      `GitHub denied ${operation} (${status}). Confirm token access to the selected repository and Contents read/write permission. After changing Vercel settings, redeploy.`,
     );
   throw new ApiError(
     502,
-    "GitHub storage is unavailable. Your changes were not saved.",
+    `GitHub could not complete ${operation} (${status}). Your changes were not saved.`,
   );
 }
 export async function loadShared(): Promise<{
@@ -197,7 +226,7 @@ export async function loadShared(): Promise<{
 } | null> {
   const r = await github(`contents/${FILE}?ref=${BRANCH}`);
   if (r.status === 404) return null;
-  if (!r.ok) githubError(r.status);
+  if (!r.ok) await githubError(r, "reading shared records");
   const file = await r.json();
   if (
     file.type !== "file" ||
@@ -241,14 +270,15 @@ function checkEnvelope(value: Envelope) {
 async function ensureBranch() {
   const current = await github(`git/ref/heads/${BRANCH}`);
   if (current.ok) return;
-  if (current.status !== 404) githubError(current.status);
+  if (current.status !== 404)
+    await githubError(current, "checking the storage branch");
   const repo = await github("");
-  if (!repo.ok) githubError(repo.status);
+  if (!repo.ok) await githubError(repo, "reading repository details");
   const { default_branch } = await repo.json();
   const main = await github(
     `git/ref/heads/${encodeURIComponent(default_branch)}`,
   );
-  if (!main.ok) githubError(main.status);
+  if (!main.ok) await githubError(main, "reading the main branch");
   const { object } = await main.json();
   const created = await github("git/refs", {
     method: "POST",
@@ -257,7 +287,7 @@ async function ensureBranch() {
   if (created.ok) return;
   if (created.status === 422 && (await github(`git/ref/heads/${BRANCH}`)).ok)
     return;
-  githubError(created.status);
+  await githubError(created, "creating the storage branch");
 }
 export async function saveShared(envelope: Envelope, expected: number | null) {
   checkEnvelope(envelope);
@@ -292,5 +322,5 @@ export async function saveShared(envelope: Envelope, expected: number | null) {
     }),
   });
   if (r.status === 409 || r.status === 422) conflict();
-  if (!r.ok) githubError(r.status);
+  if (!r.ok) await githubError(r, "saving shared records");
 }

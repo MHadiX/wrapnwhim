@@ -201,3 +201,46 @@ it("accepts a trusted reverse proxy host without weakening cross-origin checks",
   expect(logged.status).toBe(200);
   expect(logged.headers.get("set-cookie")).toContain("Secure");
 });
+
+it.each([401, 403, 500])(
+  "identifies GitHub failure %s without exposing upstream details",
+  async (status) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({ message: "test-token-not-real" }, { status }),
+      ),
+    );
+    const result = await GET(request("/api/workspace"));
+    const body = await result.text();
+    expect(body).toContain(String(status));
+    expect(body).not.toContain("test-token-not-real");
+  },
+);
+it("explains a workflow permission denial during first storage branch creation", async () => {
+  const original = globalThis.fetch;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string, init?: RequestInit) =>
+      input.endsWith("/git/refs")
+        ? Response.json(
+            {
+              message:
+                "refusing to allow a token to create a workflow without workflow permission",
+            },
+            { status: 403 },
+          )
+        : original(input, init),
+    ),
+  );
+  const initial = await create(password, empty());
+  const result = await PUT(
+    request("/api/workspace", "PUT", {
+      envelope: initial.envelope,
+      expected: null,
+    }),
+  );
+  expect(result.status).toBe(503);
+  expect(await result.text()).toContain("Workflows read/write");
+  expect(serial).toBe(0);
+});
