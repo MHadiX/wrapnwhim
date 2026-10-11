@@ -1,5 +1,5 @@
 import { it, expect } from "vitest";
-import { empty } from "../../src/lib/business";
+import { empty } from "../../src/lib/finance";
 import { create, unlock, csv } from "../../src/lib/storage";
 it("encrypts records, rejects wrong passwords and detects tampering", async () => {
   const state = empty();

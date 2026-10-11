@@ -2,7 +2,15 @@ import { beforeEach, afterEach, it, expect, vi } from "vitest";
 import { POST, DELETE } from "../../src/app/api/session/route";
 import { GET, PUT } from "../../src/app/api/workspace/route";
 import { create, seal } from "../../src/lib/storage";
-import { empty, operate } from "../../src/lib/business";
+import { empty, add } from "../../src/lib/finance";
+const sample = (description: string) =>
+  add(empty(), {
+    kind: "income",
+    amount: "100",
+    date: new Date().toISOString().slice(0, 10),
+    description,
+    category: "General",
+  });
 const password = "shared-test-password-only";
 const origin = "https://business.example";
 let file: { content: string; sha: string; type: string; size: number } | null;
@@ -105,7 +113,7 @@ it("fails closed without server configuration and never exposes a token", async 
   expect(await r.text()).not.toContain("test-token-not-real");
 });
 it("shares only ciphertext, validates accounting before save and rejects damaged ciphertext", async () => {
-  const state = operate(empty(), "customer", { name: "Private shared buyer" });
+  const state = sample("Private shared buyer");
   state.revision = 0;
   const result = await create(password, state);
   expect(
@@ -151,12 +159,12 @@ it("uses GitHub SHA compare-and-swap so simultaneous partner saves cannot overwr
     ).status,
   ).toBe(200);
   const a = await seal(
-    operate(empty(), "customer", { name: "Partner A buyer" }),
+    sample("Partner A buyer"),
     initial.key,
     initial.envelope.salt,
   );
   const b = await seal(
-    operate(empty(), "customer", { name: "Partner B buyer" }),
+    sample("Partner B buyer"),
     initial.key,
     initial.envelope.salt,
   );

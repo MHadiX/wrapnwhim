@@ -1,4 +1,4 @@
-import { validate, type Workspace } from "./business";
+import { validate, type Workspace } from "./finance";
 export type Envelope = {
   version: 1;
   revision: number;

@@ -1,11 +1,11 @@
-# Shared workspace verification
+# Finance tracker verification
 
-This report concerns the server-backed, encrypted GitHub storage version. Earlier static-site and Supabase results do not validate this architecture.
+This report concerns the simplified shared finance tracker, not the earlier business-management interface.
 
-Passed in this environment: type checking, linting, 20 unit tests, production Next.js build, 8 desktop/mobile browser tests, and the production dependency audit (zero vulnerabilities). The build produces `.next/routes-manifest.json` and both dynamic server API routes.
+Verified here: clean dependency installation, type checking, lint, 24 unit tests, production build, 6 desktop/mobile browser tests and production dependency audit (zero vulnerabilities). Live shared storage remains pending the Vercel server settings.
 
-The 20 unit tests cover the business ledger, inventory, orders, payments, returns, approvals and closed periods; encryption/tampering/CSV escaping; server authentication, secure session cookies, cross-origin rejection, reverse-proxy hosts, missing-configuration denial, ciphertext-only storage, save validation and GitHub SHA concurrency protection.
+Unit coverage includes exact money arithmetic; negative balances; invalid amounts/dates; date-range opening/closing balances; spending categories; corrections/deletion; backup validation; conversion of old cash movements; encryption; CSV formula escaping; server authentication; secure cookies; same-origin and reverse-proxy checks; missing-configuration denial; ciphertext-only storage; and GitHub SHA conflict rejection. Legacy engine tests remain for older backup compatibility.
 
-Browser checks use the actual production Next.js server and a disposable local GitHub API fixture with dummy credentials. They exercise purchasing/order fulfillment, reporting, server persistence, password rejection, encrypted backup restoration, CSV exports, mobile navigation/dark mode, three isolated browser sessions, synchronization and stale-save rejection. The fixture resets between serial tests and never accesses real GitHub records.
+Browser tests use the actual production Next.js server and a disposable local GitHub API fixture with dummy credentials. They exercise recording additions/spending, corrections/deletion, date reports, CSV downloads, print actions, mobile layout, three isolated browser sessions, shared updates, stale-save rejection, password denial, encrypted backup restore and persistence after reload. The fixture resets between serial tests and never uses real GitHub records.
 
-Live GitHub token permissions, repository policies, Vercel environment settings, live deployment and account access remain unverified. Shared storage requires GITHUB_STORAGE_TOKEN and WORKSPACE_PASSWORD in the Vercel server environment. There is one shared login with equal access, no separately verified partner identities, Supabase, SMTP, MFA or scheduled offsite backups.
+Live Vercel settings, GitHub token permissions and repository policies remain unverified. Activation requires GITHUB_STORAGE_TOKEN and WORKSPACE_PASSWORD in Vercel. One shared login gives everyone the same access.
