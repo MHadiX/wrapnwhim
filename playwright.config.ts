@@ -1,8 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "tests/e2e",
-  fullyParallel: true,
-  workers: 2,
+  fullyParallel: false,
+  workers: 1,
   timeout: 60000,
   retries: process.env.CI ? 1 : 0,
   reporter: "list",
@@ -14,11 +14,11 @@ export default defineConfig({
       : {},
   },
   webServer: {
-    command: "npm run start",
+    command: "node tests/fixtures/start.mjs",
     stdout: "ignore",
     stderr: "ignore",
     url: "http://127.0.0.1:3000",
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
     timeout: 120000,
   },
   projects: [

@@ -1,12 +1,12 @@
 {
   "name": "wrap-n-whip-business-os",
   "version": "0.1.0",
-  "description": "Password-protected, encrypted single-device business workspace",
+  "description": "Shared encrypted business workspace with GitHub storage",
   "main": "index.js",
   "scripts": {
     "dev": "next dev --webpack --hostname 0.0.0.0",
     "build": "next build",
-    "start": "python3 -m http.server 3000 --directory out --bind 0.0.0.0",
+    "start": "next start --hostname 0.0.0.0",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",

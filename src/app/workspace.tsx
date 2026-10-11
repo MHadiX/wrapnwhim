@@ -57,8 +57,12 @@ import {
 import {
   create,
   unlock,
+  unlockWithKey,
   seal,
   read,
+  readLegacy,
+  authenticate,
+  signOut,
   write,
   download,
   csv,
@@ -820,8 +824,8 @@ function Form({
         </div>
         {["approve", "reject"].includes(operation) && (
           <div className="note">
-            Record a partner’s real decision. This single-device workspace does
-            not independently verify the approver’s identity.
+            Record a partner’s real decision. This shared-password workspace
+            does not independently verify the approver’s identity.
           </div>
         )}
         {operation === "close_period" && (
@@ -871,7 +875,6 @@ export default function Workspace() {
   const [restorePassword, setRestorePassword] = useState("");
   const [restoreError, setRestoreError] = useState("");
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState("dashboard");
@@ -889,17 +892,17 @@ export default function Workspace() {
   const [from, setFrom] = useState(today().slice(0, 7) + "-01");
   const [to, setTo] = useState(today());
   const backupInput = useRef<HTMLInputElement>(null);
-  const lock = () => {
+  const lock = async () => {
     generation.current++;
     key.current = null;
     setState(null);
     setPassword("");
-    setConfirmPassword("");
     setForm(null);
     setDetail(null);
-    read()
-      .then(setSaved)
-      .catch((e) => setError(e.message));
+    setSaved(null);
+    setBusy(true);
+    await signOut().catch(() => {});
+    setBusy(false);
   };
   useEffect(() => {
     tabIdentity.current = crypto.randomUUID();
@@ -933,8 +936,9 @@ export default function Workspace() {
     const channel = new BroadcastChannel("wrapnwhip-workspace");
     channel.onmessage = (event) => {
       if (event.data?.sender === tabIdentity.current) return;
-      lock();
-      setToast("Updated in another tab. Unlock to load your latest records.");
+      setToast(
+        "Another partner saved changes. The shared workspace will refresh shortly.",
+      );
     };
     return () => {
       clearInterval(timer);
@@ -943,6 +947,40 @@ export default function Workspace() {
       window.removeEventListener("keydown", touch);
     };
   }, [state]);
+  useEffect(() => {
+    if (!state || !key.current || form || busy) return;
+    let cancelled = false;
+    const revision = state.revision;
+    const refresh = async () => {
+      try {
+        const latest = await read();
+        if (!latest) {
+          if (!cancelled) {
+            lock();
+            setError("Session expired. Please unlock again.");
+          }
+          return;
+        }
+        if (latest.revision <= revision || cancelled || !key.current) return;
+        const data = await unlockWithKey(key.current, latest);
+        if (cancelled) return;
+        setSaved(latest);
+        setState(data);
+        setDetail(null);
+        setToast("Shared records updated from another device.");
+      } catch (e) {
+        if (!cancelled) setToast((e as Error).message);
+      }
+    };
+    const timer = setInterval(() => void refresh(), 10000);
+    const focus = () => void refresh();
+    window.addEventListener("focus", focus);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      window.removeEventListener("focus", focus);
+    };
+  }, [state, form, busy]);
   useEffect(() => {
     if (toast) {
       const t = setTimeout(() => setToast(""), 5000);
@@ -989,7 +1027,7 @@ export default function Workspace() {
         setState(next);
         setSaved(envelope);
         setForm(null);
-        setToast("Record saved privately on this device.");
+        setToast("Record saved to the shared workspace.");
         const channel = new BroadcastChannel("wrapnwhip-workspace");
         channel.postMessage({
           revision: next.revision,
@@ -1008,21 +1046,22 @@ export default function Workspace() {
     try {
       if (!crypto.subtle)
         throw Error("Open this site using HTTPS in a current browser.");
-      if (saved) {
-        const result = await unlock(password, saved);
+      await authenticate(password);
+      const current = await read();
+      if (current) {
+        const result = await unlock(password, current);
         key.current = result.key;
+        setSaved(current);
         setState(result.state);
       } else {
-        if (password !== confirmPassword)
-          throw Error("Passwords do not match.");
-        const result = await create(password, empty());
+        const initial = empty();
+        const result = await create(password, initial);
         await write(result.envelope, null);
         key.current = result.key;
         setSaved(result.envelope);
-        setState(empty());
+        setState(initial);
       }
       setPassword("");
-      setConfirmPassword("");
       lastActivity.current = Date.now();
     } catch (e) {
       setError((e as Error).message);
@@ -1031,8 +1070,8 @@ export default function Workspace() {
     }
   }
   async function restore(file: File) {
-    if (file.size > 50 * 1024 * 1024) {
-      setError("Backup must be smaller than 50 MB.");
+    if (file.size > 4 * 1024 * 1024) {
+      setError("Backup must be smaller than 4 MB.");
       return;
     }
     try {
@@ -1054,7 +1093,7 @@ export default function Workspace() {
   }
   async function confirmRestore(e: React.FormEvent) {
     e.preventDefault();
-    if (!restoreEnvelope) return;
+    if (!restoreEnvelope || !key.current || !saved) return;
     setBusy(true);
     setRestoreError("");
     try {
@@ -1062,7 +1101,7 @@ export default function Workspace() {
       if (
         saved &&
         !window.confirm(
-          "Replace the records on this device with this verified backup? Download your current backup first.",
+          "Replace the shared records for all three partners with this verified backup? Download your current backup first.",
         )
       )
         return;
@@ -1070,7 +1109,7 @@ export default function Workspace() {
         ...result.state,
         revision: (saved?.revision ?? 0) + 1,
       };
-      const envelope = await seal(restored, result.key, restoreEnvelope.salt);
+      const envelope = await seal(restored, key.current, saved.salt);
       await write(envelope, saved?.revision ?? null);
       const channel = new BroadcastChannel("wrapnwhip-workspace");
       channel.postMessage({
@@ -1078,11 +1117,13 @@ export default function Workspace() {
         sender: tabIdentity.current,
       });
       channel.close();
-      lock();
+      await lock();
       setSaved(envelope);
       setRestoreEnvelope(null);
       setRestorePassword("");
-      setToast("Verified backup restored. Unlock with its password.");
+      setToast(
+        "Verified backup restored for everyone. Unlock with the shared password.",
+      );
     } catch (e) {
       setRestoreError((e as Error).message);
     } finally {
@@ -1183,60 +1224,33 @@ export default function Workspace() {
           </section>
           <main className="login-form">
             <div className="login-box">
-              <span className="eyebrow">YOUR PRIVATE WORKSPACE</span>
-              <h1>
-                {saved === undefined
-                  ? "Loading your workspace…"
-                  : saved
-                    ? "Welcome back"
-                    : "Make it yours"}
-              </h1>
+              <span className="eyebrow">YOUR SHARED WORKSPACE</span>
+              <h1>Welcome back</h1>
               <p className="subtle" style={{ lineHeight: 1.8 }}>
-                {saved
-                  ? "Enter your password to unlock the records saved on this device."
-                  : "Create a password to protect your business records. No account, email verification or service setup needed."}
+                One workspace for all three partners. Enter your shared password
+                to access the same orders, stock and accounts on every device.
               </p>
               {saved !== undefined && (
                 <form onSubmit={login}>
                   <div className="field">
-                    <label htmlFor="password">
-                      {saved ? "Password" : "Create password"}
-                    </label>
+                    <label htmlFor="password">Password</label>
                     <input
                       id="password"
-                      autoComplete={saved ? "current-password" : "new-password"}
+                      autoComplete="current-password"
                       type="password"
                       required
-                      minLength={saved ? 1 : 8}
+                      minLength={1}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                     />
                   </div>
-                  {!saved && (
-                    <div className="field">
-                      <label htmlFor="confirmPassword">Confirm password</label>
-                      <input
-                        id="confirmPassword"
-                        type="password"
-                        autoComplete="new-password"
-                        required
-                        minLength={8}
-                        value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
-                      />
-                    </div>
-                  )}
                   {error && (
                     <div role="alert" className="error">
                       {error}
                     </div>
                   )}
                   <button className="primary" disabled={busy}>
-                    {busy
-                      ? "Unlocking…"
-                      : saved
-                        ? "Unlock workspace"
-                        : "Create workspace"}
+                    {busy ? "Unlocking…" : "Unlock workspace"}
                     <ArrowUpRight size={16} />
                   </button>
                 </form>
@@ -1244,30 +1258,24 @@ export default function Workspace() {
               <div className="note">
                 <ShieldCheck size={16} />
                 <br />
-                Records are encrypted and saved in this browser. Keep your
-                password and backups safe; there is no email password reset.
+                Records are encrypted in shared storage. All three partners use
+                the same password. Keep encrypted backups safe.
               </div>
               <button
                 className="ghost"
-                onClick={() => backupInput.current?.click()}
-              >
-                <Upload size={14} />
-                Restore encrypted backup
-              </button>
-              {saved && (
-                <button
-                  className="ghost"
-                  onClick={() =>
+                onClick={async () => {
+                  try {
                     download(
-                      `wrapnwhip-backup-${today()}.json`,
-                      JSON.stringify(saved),
-                    )
+                      `wrapnwhip-old-backup-${today()}.json`,
+                      JSON.stringify(await readLegacy()),
+                    );
+                  } catch (e) {
+                    setError((e as Error).message);
                   }
-                >
-                  <Download size={14} />
-                  Download locked backup
-                </button>
-              )}
+                }}
+              >
+                <Download size={14} /> Download old browser backup
+              </button>
             </div>
           </main>
         </div>
@@ -1667,7 +1675,7 @@ export default function Workspace() {
           ))}
         </nav>
         <div className="sidebar-footer">
-          <ShieldCheck size={13} /> Encrypted on this device
+          <ShieldCheck size={13} /> Encrypted shared storage
           <br />
           PKR · Asia/Karachi
           <br />
@@ -1693,7 +1701,7 @@ export default function Workspace() {
           <span className="business">{state.name}</span>
           <span className="save-state">
             <CheckCircle2 size={12} />
-            {busy ? "Saving…" : "Saved on this device"}
+            {busy ? "Saving…" : "Shared workspace"}
           </span>
           <button
             className="ghost"
@@ -1978,10 +1986,9 @@ export default function Workspace() {
                 <section className="card">
                   <h2>Keep a safe copy</h2>
                   <p>
-                    Download an encrypted backup regularly. Restore it on
-                    another device using the same password. Clearing this
-                    browser’s storage or losing your password can make records
-                    unrecoverable.
+                    Download an encrypted backup regularly. Restoring a backup
+                    replaces the shared records for everyone. You can also
+                    import backups from the earlier browser-only website.
                   </p>
                   <div className="actions">
                     <button className="primary" onClick={backup}>
@@ -1998,9 +2005,10 @@ export default function Workspace() {
                 <section className="card">
                   <h2>A simple, protected site</h2>
                   <p>
-                    Your password encrypts records using AES-GCM. It stays on
-                    this device and is never sent to GitHub or Vercel. The
-                    workspace locks after five minutes without activity.
+                    Your password unlocks the shared workspace through the
+                    server and encrypts records using AES-GCM. The GitHub access
+                    token stays on the server. The workspace locks after five
+                    minutes without activity.
                   </p>
                   <p>
                     There is no email recovery. Store your password somewhere
@@ -2015,16 +2023,18 @@ export default function Workspace() {
                 <section className="card">
                   <h2>Where your records live</h2>
                   <p>
-                    <strong>This browser stores your encrypted records.</strong>{" "}
-                    GitHub stores the website’s code, and Vercel or GitHub Pages
-                    hosts the site. Business records are not uploaded to a
-                    public repository.
+                    <strong>
+                      All three partners share these encrypted records.
+                    </strong>{" "}
+                    Vercel hosts the site and securely accesses the encrypted
+                    workspace on a separate GitHub data branch. Plain business
+                    records and passwords are never committed.
                   </p>
                   <p>
-                    Different browsers and devices have separate workspaces.
-                    Share an encrypted backup when you need to move records.
-                    Simultaneous shared editing requires a private backend and
-                    is not enabled here.
+                    Changes refresh on other devices within about ten seconds.
+                    Conflicting saves are rejected; close the form, let the
+                    workspace refresh, review the latest records and try again.
+                    This simple login gives every partner the same access.
                   </p>
                 </section>
               </div>
@@ -2209,8 +2219,8 @@ export default function Workspace() {
               {tab === "approvals" && (
                 <div className="note">
                   Approval records are a bookkeeping record of decisions made by
-                  your partners. This password-protected, single-device site
-                  does not verify separate partner identities.
+                  your partners. This shared-password site does not verify
+                  separate partner identities.
                 </div>
               )}
               <div className="filters">

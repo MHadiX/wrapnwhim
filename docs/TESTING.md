@@ -1,11 +1,11 @@
-# Simplified website verification
+# Shared workspace verification
 
-This report concerns the new static, encrypted, single-device website. The earlier Supabase test results do not apply to this architecture.
+This report concerns the server-backed, encrypted GitHub storage version. Earlier static-site and Supabase results do not validate this architecture.
 
-Validation passed: 14 unit tests and 8 browser tests across desktop and mobile. Type checking, linting and the production static build passed.
+Passed in this environment: type checking, linting, 20 unit tests, production Next.js build, 8 desktop/mobile browser tests, and the production dependency audit (zero vulnerabilities). The build produces `.next/routes-manifest.json` and both dynamic server API routes.
 
-Automated coverage includes double-entry accounting; capital versus income; supplier liabilities; inventory costing/reservations; oversell rollback; deposits/delivery recognition; partial discounted returns/refunds; COD settlement fees; transfers; partner payout decisions; closed periods; paid supplier returns; partner-funded purchases; backup journal validation; encryption; wrong-password denial; ciphertext tampering; and spreadsheet formula escaping.
+The 20 unit tests cover the business ledger, inventory, orders, payments, returns, approvals and closed periods; encryption/tampering/CSV escaping; server authentication, secure session cookies, cross-origin rejection, reverse-proxy hosts, missing-configuration denial, ciphertext-only storage, save validation and GitHub SHA concurrency protection.
 
-Browser tests use the actual exported site and real encrypted IndexedDB. They exercise purchases, supplier payment, investment, order fulfillment, customer payment, reporting, encrypted persistence, locking, incorrect passwords, backup verification/restoration on a fresh browser, CSV export, mobile navigation and dark mode.
+Browser checks use the actual production Next.js server and a disposable local GitHub API fixture with dummy credentials. They exercise purchasing/order fulfillment, reporting, server persistence, password rejection, encrypted backup restoration, CSV exports, mobile navigation/dark mode, three isolated browser sessions, synchronization and stale-save rejection. The fixture resets between serial tests and never accesses real GitHub records.
 
-Live Vercel deployment is not verified until its integration builds and a functional request succeeds. GitHub Pages likewise depends on repository publishing permissions. No remote database, shared editing, multi-user authentication, SMTP, Supabase or scheduled cloud backup is configured. Each browser/device has separate encrypted records.
+Live GitHub token permissions, repository policies, Vercel environment settings, live deployment and account access remain unverified. Shared storage requires GITHUB_STORAGE_TOKEN and WORKSPACE_PASSWORD in the Vercel server environment. There is one shared login with equal access, no separately verified partner identities, Supabase, SMTP, MFA or scheduled offsite backups.

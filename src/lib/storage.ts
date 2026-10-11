@@ -68,76 +68,95 @@ export async function unlock(password: string, envelope: Envelope) {
     throw Error("Invalid encrypted backup.");
   try {
     const key = await derive(password, bytes(envelope.salt));
-    const data = await crypto.subtle.decrypt(
-      {
-        name: "AES-GCM",
-        iv: bytes(envelope.iv) as BufferSource,
-        additionalData: enc.encode("wrapnwhip-v1"),
-      },
-      key,
-      bytes(envelope.ciphertext) as BufferSource,
-    );
-    const state = validate(JSON.parse(dec.decode(data)));
-    if (state.revision !== envelope.revision) throw Error("Invalid revision.");
-    return { key, state };
+    return { key, state: await unlockWithKey(key, envelope) };
   } catch {
     throw Error("Incorrect password or damaged backup.");
   }
 }
-async function database(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const r = indexedDB.open("wrapnwhip-private", 1);
-    r.onupgradeneeded = () => r.result.createObjectStore("workspace");
-    r.onsuccess = () => resolve(r.result);
-    r.onerror = () =>
-      reject(
-        Error("Browser storage is unavailable. Use a regular browser window."),
-      );
+export async function unlockWithKey(key: CryptoKey, envelope: Envelope) {
+  const data = await crypto.subtle.decrypt(
+    {
+      name: "AES-GCM",
+      iv: bytes(envelope.iv) as BufferSource,
+      additionalData: enc.encode("wrapnwhip-v1"),
+    },
+    key,
+    bytes(envelope.ciphertext) as BufferSource,
+  );
+  const state = validate(JSON.parse(dec.decode(data)));
+  if (state.revision !== envelope.revision) throw Error("Invalid revision.");
+  return state;
+}
+async function api(path: string, init?: RequestInit) {
+  const response = await fetch(path, { ...init, cache: "no-store" });
+  const data = await response.json();
+  if (!response.ok)
+    throw Error(
+      data.error || "Shared storage is unavailable. Nothing was changed.",
+    );
+  return data;
+}
+export async function authenticate(password: string) {
+  await api("/api/session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password }),
+  });
+}
+export async function signOut() {
+  await fetch("/api/session", {
+    method: "DELETE",
+    signal: AbortSignal.timeout(10000),
   });
 }
 export async function read(): Promise<Envelope | null> {
-  const db = await database();
-  try {
-    return await new Promise((resolve, reject) => {
-      const t = db.transaction("workspace", "readonly");
-      const r = t.objectStore("workspace").get("main");
-      r.onsuccess = () => resolve(r.result ?? null);
-      r.onerror = () => reject(Error("Could not read saved records."));
-    });
-  } finally {
-    db.close();
-  }
+  const response = await fetch("/api/workspace", { cache: "no-store" });
+  if (response.status === 401) return null;
+  const data = await response.json();
+  if (!response.ok)
+    throw Error(data.error || "Could not load the shared workspace.");
+  return data.envelope;
 }
 export async function write(envelope: Envelope, expected: number | null) {
-  const db = await database();
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const t = db.transaction("workspace", "readwrite");
-      const store = t.objectStore("workspace");
-      let conflict = false;
-      const r = store.get("main");
-      r.onsuccess = () => {
-        const old = r.result as Envelope | undefined;
-        if ((old?.revision ?? null) !== expected) {
-          conflict = true;
-          t.abort();
-          return;
-        }
-        store.put(envelope, "main");
+  await api("/api/workspace", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ envelope, expected }),
+  });
+}
+// Read the earlier local workspace only when its owner explicitly exports it.
+export async function readLegacy(): Promise<Envelope> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open("wrapnwhip-private", 1);
+    request.onupgradeneeded = () => request.transaction?.abort();
+    request.onerror = () =>
+      reject(
+        Error(
+          "No old browser workspace was found on this device and website URL.",
+        ),
+      );
+    request.onsuccess = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains("workspace")) {
+        db.close();
+        reject(Error("No old browser workspace was found."));
+        return;
+      }
+      const read = db
+        .transaction("workspace", "readonly")
+        .objectStore("workspace")
+        .get("main");
+      read.onsuccess = () => {
+        db.close();
+        if (read.result?.version === 1) resolve(read.result);
+        else reject(Error("No old browser workspace was found."));
       };
-      t.oncomplete = () => resolve();
-      t.onerror = t.onabort = () =>
-        reject(
-          Error(
-            conflict
-              ? "Records changed in another tab. Lock and unlock to load the latest version."
-              : "Could not save records. Nothing was changed.",
-          ),
-        );
-    });
-  } finally {
-    db.close();
-  }
+      read.onerror = () => {
+        db.close();
+        reject(Error("Could not read the old browser backup."));
+      };
+    };
+  });
 }
 export function download(
   name: string,
